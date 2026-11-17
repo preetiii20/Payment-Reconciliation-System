@@ -4,13 +4,20 @@ Payment Reconciliation System - Professional Financial Dashboard
 
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
 from reconciliation import ReconciliationEngine
 from data_generator import generate_sample_data, export_sample_data
 from decimal import Decimal
 import os
-from io import BytesIO
+
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+except ImportError:
+    st.error("Plotly not installed. Reinstalling...")
+    import subprocess
+    subprocess.run(["pip", "install", "plotly", "kaleido"], check=True)
+    import plotly.graph_objects as go
+    import plotly.express as px
 
 # Configure page
 st.set_page_config(
