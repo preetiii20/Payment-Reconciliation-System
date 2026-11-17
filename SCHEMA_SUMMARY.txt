@@ -1,0 +1,391 @@
+================================================================================
+          PAYMENT RECONCILIATION SYSTEM - CSV SCHEMA SUMMARY
+================================================================================
+
+DOCUMENT: For Your Review & Approval
+STATUS: Awaiting Approval
+DATE: November 17, 2026
+
+================================================================================
+1. PAYMENT PLATFORM CSV SCHEMA
+================================================================================
+
+File Name: payment_platform_YYYYMM.csv
+Example: payment_platform_202411.csv
+
+COLUMNS (7 fields):
+================================================================================
+
+1. transaction_id
+   Type: String (alphanumeric, max 50 chars)
+   Required: YES
+   Example: "TXN20241115001"
+   Description: Unique identifier for transaction
+   Validation: Non-empty, unique within dataset, no special characters
+
+2. transaction_date
+   Type: ISO 8601 DateTime (YYYY-MM-DD HH:MM:SS)
+   Required: YES
+   Example: "2024-11-15 14:30:00"
+   Description: When payment was initiated
+   Validation: Valid datetime format, no future dates, UTC or local consistent
+
+3. amount
+   Type: Decimal String (2 decimal places)
+   Required: YES
+   Example: "5000.00"
+   Description: Transaction amount in INR
+   Validation: Positive (≥ 0.00), exactly 2 decimals, max 9999999.99
+
+4. transaction_type
+   Type: Enum String
+   Required: YES
+   Example: "payment" or "refund"
+   Description: Type of transaction
+   Validation: Must be exactly "payment" or "refund" (case-sensitive)
+
+5. status
+   Type: Enum String
+   Required: YES
+   Example: "settled", "pending", or "failed"
+   Description: Platform-side transaction status
+   Validation: One of: "pending", "settled", "failed"
+
+6. currency
+   Type: ISO 4217 Code
+   Required: YES
+   Example: "INR"
+   Description: Currency code
+   Validation: Must be "INR" (future: multi-currency support)
+
+7. original_transaction_id
+   Type: String (alphanumeric)
+   Required: CONDITIONAL (required if transaction_type="refund")
+   Example: "TXN20241115001" (for refunds) or "" (for payments)
+   Description: Links refund to original payment
+   Validation: If present, must reference existing payment transaction_id
+
+
+EXAMPLE CSV (Platform):
+================================================================================
+transaction_id,transaction_date,amount,transaction_type,status,currency,original_transaction_id
+TXN20241115001,2024-11-15 14:30:00,5000.00,payment,settled,INR,
+TXN20241128001,2024-11-28 10:15:00,3500.50,payment,pending,INR,
+TXN20241115002,2024-11-15 14:30:00,5000.00,payment,settled,INR,
+TXN20241120001,2024-11-20 11:20:00,1000.00,refund,settled,INR,TXN20241115001
+TXN20241120002,2024-11-20 12:00:00,500.00,refund,settled,INR,
+TXN20241110001,2024-11-10 08:00:00,100.01,payment,settled,INR,
+TXN20241110002,2024-11-10 08:01:00,100.01,payment,settled,INR,
+TXN20241110003,2024-11-10 08:02:00,100.01,payment,settled,INR,
+
+
+================================================================================
+2. BANK SETTLEMENT CSV SCHEMA
+================================================================================
+
+File Name: bank_settlement_YYYYMM.csv
+Example: bank_settlement_202411.csv
+
+COLUMNS (8 fields):
+================================================================================
+
+1. settlement_id
+   Type: String (alphanumeric, max 50 chars)
+   Required: YES
+   Example: "SETTLE202411001"
+   Description: Bank-assigned settlement record ID
+   Validation: Non-empty, unique within dataset
+
+2. transaction_id
+   Type: String (alphanumeric)
+   Required: YES
+   Example: "TXN20241115001"
+   Description: Links to payment platform transaction_id
+   Validation: Non-empty, must match for reconciliation
+
+3. settlement_date
+   Type: ISO 8601 DateTime (YYYY-MM-DD HH:MM:SS)
+   Required: YES
+   Example: "2024-11-16 22:30:00"
+   Description: When payment settled at bank
+   Validation: Valid datetime format, typically after transaction_date
+
+4. amount
+   Type: Decimal String (2 decimal places)
+   Required: YES
+   Example: "5000.00"
+   Description: Settled amount in INR
+   Validation: Positive (≥ 0.00), exactly 2 decimals, should match platform
+
+5. transaction_type
+   Type: Enum String
+   Required: YES
+   Example: "payment" or "refund"
+   Description: Type of transaction
+   Validation: Must be "payment" or "refund", should match platform
+
+6. status
+   Type: Enum String
+   Required: YES
+   Example: "settled", "failed", or "reversed"
+   Description: Bank settlement status
+   Validation: One of: "settled", "failed", "reversed"
+
+7. currency
+   Type: ISO 4217 Code
+   Required: YES
+   Example: "INR"
+   Description: Currency code
+   Validation: Must be "INR"
+
+8. original_transaction_id
+   Type: String (alphanumeric)
+   Required: CONDITIONAL (required if transaction_type="refund")
+   Example: "TXN20241115001" (for refunds) or "" (for payments)
+   Description: Links refund to original payment
+   Validation: If present, must reference payment transaction_id from platform
+
+
+EXAMPLE CSV (Bank Settlement):
+================================================================================
+settlement_id,transaction_id,settlement_date,amount,transaction_type,status,currency,original_transaction_id
+SETTLE202411001,TXN20241115001,2024-11-16 22:30:00,5000.00,payment,settled,INR,
+SETTLE202411002,TXN20241128001,2024-11-30 08:45:00,3500.50,payment,settled,INR,
+SETTLE202412001,TXN20241201001,2024-12-01 23:59:00,3500.50,payment,settled,INR,
+SETTLE202411004,TXN20241120001,2024-11-21 22:15:00,1000.00,refund,settled,INR,TXN20241115001
+SETTLE202411005,TXN20241115002,2024-11-16 22:30:00,5000.00,payment,settled,INR,
+SETTLE202411001B,TXN20241110001,2024-11-11 10:00:00,100.01,payment,settled,INR,
+SETTLE202411002B,TXN20241110002,2024-11-11 10:01:00,100.01,payment,settled,INR,
+SETTLE202411003B,TXN20241110003,2024-11-11 10:02:00,100.01,payment,settled,INR,
+
+
+================================================================================
+3. MANDATORY SCENARIOS - CSV EXAMPLES
+================================================================================
+
+SCENARIO 1: CROSS-MONTH SETTLEMENT
+─────────────────────────────────────────────────────────────────────────────
+
+Platform:
+  TXN20241130001,2024-11-30 10:15:00,3500.50,payment,pending,INR,
+
+Bank:
+  SETTLE202412001,TXN20241130001,2024-12-01 08:45:00,3500.50,payment,settled,INR,
+
+Analysis:
+  - Payment dated: November 30, 2024
+  - Settlement dated: December 1, 2024 (1 day later, cross-month)
+  - Days elapsed: 1 day (within normal 1-2 day settlement window)
+  - Classification: CROSS_MONTH_SETTLEMENT (informational flag, not a failure)
+
+
+SCENARIO 2: ROUNDING DIFFERENCES
+─────────────────────────────────────────────────────────────────────────────
+
+Platform (Sum then Round):
+  TXN20241110001,2024-11-10 08:00:00,0.005,payment,settled,INR,
+  TXN20241110002,2024-11-10 08:01:00,0.005,payment,settled,INR,
+  TXN20241110003,2024-11-10 08:02:00,0.005,payment,settled,INR,
+
+Bank (Round then Sum):
+  SETTLE202411001,TXN20241110001,2024-11-11 10:00:00,0.01,payment,settled,INR,
+  SETTLE202411002,TXN20241110002,2024-11-11 10:01:00,0.01,payment,settled,INR,
+  SETTLE202411003,TXN20241110003,2024-11-11 10:02:00,0.01,payment,settled,INR,
+
+Analysis:
+  - Platform policy: Sum precise amounts (0.005 + 0.005 + 0.005 = 0.015) then round to ₹0.02
+  - Bank policy: Round each amount (0.005→0.01) then sum (0.01 + 0.01 + 0.01 = ₹0.03)
+  - Aggregate variance: ₹0.03 - ₹0.02 = ₹0.01 (within threshold)
+  - Classification: ROUNDING_VARIANCE (acceptable difference from aggregation policy divergence)
+  - Note: 0.005 represents internal synthetic precision for controlled test, not real customer transaction precision
+
+
+SCENARIO 3: DUPLICATE ENTRIES
+─────────────────────────────────────────────────────────────────────────────
+
+Platform (Duplicate):
+  TXN20241115001,2024-11-15 14:30:00,5000.00,payment,settled,INR,
+  TXN20241115001,2024-11-15 14:30:00,5000.00,payment,settled,INR,
+
+Bank:
+  SETTLE202411001,TXN20241115001,2024-11-16 22:30:00,5000.00,payment,settled,INR,
+
+Analysis:
+  - Same transaction_id: TXN20241115001
+  - Same amount: 5000.00
+  - Same timestamp: 2024-11-15 14:30:00
+  - Classification: DUPLICATE_PLATFORM (found in platform data)
+  - Action: Preserve both records; count only one in clean reconciliation totals
+
+
+SCENARIO 4: ORPHANED REFUND
+─────────────────────────────────────────────────────────────────────────────
+
+Platform:
+  TXN20241120002,2024-11-20 12:00:00,500.00,refund,settled,INR,TXN20241115099
+
+Bank:
+  SETTLE202411099,TXN20241120002,2024-11-21 22:15:00,500.00,refund,settled,INR,TXN20241115099
+
+Analysis:
+  - Refund transaction_type: "refund"
+  - original_transaction_id: "TXN20241115099" (non-empty, but does NOT exist in platform)
+  - Referenced payment NOT found in platform dataset
+  - Classification: ORPHANED_REFUND (high severity)
+  - Action: Flag for manual investigation; distinguish from missing references by non-empty invalid value
+
+
+================================================================================
+4. CSV FORMAT RULES
+================================================================================
+
+Header Row:
+  - Required: YES
+  - Must match column names exactly (case-sensitive)
+  - Example: transaction_id,transaction_date,amount,transaction_type,status,currency,original_transaction_id
+
+Delimiter:
+  - Character: Comma (,)
+  - No spaces around delimiter
+
+Quoting:
+  - Character: Double quote (")
+  - Use when field contains: comma, newline, or quote
+  - Escape internal quotes by doubling: "Hello ""World"""
+
+Encoding:
+  - UTF-8 (mandatory)
+
+Line Endings:
+  - LF (Unix/Mac) or CRLF (Windows)
+  - Consistent throughout file
+
+Whitespace:
+  - Leading/trailing: Trimmed during parsing
+  - Internal: Preserved
+
+Empty Fields:
+  - Conditional columns (e.g., original_transaction_id): Leave BLANK (not "NULL", not empty string)
+  - Required columns: Must have value
+
+
+EXAMPLE WITH QUOTES:
+  settlement_id,transaction_id,settlement_date,amount,transaction_type,status,currency,original_transaction_id
+  "SETTLE,001",TXN001,2024-11-15 14:30:00,5000.00,payment,settled,INR,
+  SETTLE002,TXN002,2024-11-15 15:00:00,"3,500.50",payment,settled,INR,
+
+
+================================================================================
+5. KEY DIFFERENCES FROM ORIGINAL SCHEMA
+================================================================================
+
+FIELD CHANGES:
+
+OLD                          NEW                      REASON
+─────────────────────────────────────────────────────────────────────────────
+timestamp (generic)    →     transaction_date (platform)    Distinguish when initiated
+                             settlement_date (bank)         vs. when settled
+
+type                   →     transaction_type               Clarity; explicit "payment"/"refund"
+
+N/A                    →     original_transaction_id        Refund linkage (scenario 4)
+
+N/A                    →     settlement_id (bank only)      Bank-assigned record ID
+
+Amount: Not in match   →     Amount: Compared after match   Enable amount mismatch detection
+key
+
+
+SCHEMA SEPARATION:
+
+Platform & Bank now have distinct schemas:
+  - Platform: Initiated transactions (pending, settled, failed)
+  - Bank: Settled records (settled, failed, reversed)
+  - Enables proper temporal analysis and timing discrepancies
+
+
+================================================================================
+6. RECONCILIATION MATCHING FLOW (SIMPLIFIED)
+================================================================================
+
+INPUT: Platform CSV + Bank CSV
+
+STEP 1: Load & Validate
+  - Load platform CSV → Parse rows, validate
+  - Load bank CSV → Parse rows, validate
+  - Log errors, skip invalid rows
+
+STEP 2: Primary Match
+  - For each bank settlement:
+    - Find platform transaction with same transaction_id
+    - If found → continue to STEP 3
+    - If not found → flag EXTRA_IN_BANK discrepancy
+
+STEP 3: Detailed Comparison
+  - Amount: Compare (Decimal precision)
+  - Type: Compare (must match)
+  - Status: Compare (may differ, note it)
+  - Timing: Compare dates (within settlement window)
+
+STEP 4: Classification
+  - All match? → MATCHED (no action)
+  - Amount differs? → AMOUNT_MISMATCH discrepancy
+  - Type differs? → TYPE_MISMATCH discrepancy
+  - Timing outside window? → TIMING_MISMATCH discrepancy
+  - Refund without original? → ORPHANED_REFUND discrepancy
+
+STEP 5: Remaining
+  - Platform transactions not in bank → MISSING_IN_BANK discrepancy
+  - Duplicates in either → DUPLICATE_PLATFORM or DUPLICATE_BANK
+
+OUTPUT: Reconciliation report with all discrepancies
+
+
+================================================================================
+7. QUESTIONS FOR YOUR APPROVAL
+================================================================================
+
+Please review and provide feedback on:
+
+1. CSV Column Names:
+   - Are names clear? (transaction_date vs. settlement_date, etc.)
+   - Any naming preferences?
+
+2. Data Types:
+   - Decimal as string (e.g., "5000.00") vs. numeric? (Current: string for safety)
+   - Datetime format (YYYY-MM-DD HH:MM:SS) - acceptable?
+
+3. Enums:
+   - Platform statuses: pending, settled, failed - complete?
+   - Bank statuses: settled, failed, reversed - complete?
+   - Should we add other statuses (e.g., "processing", "disputed")?
+
+4. Refund Handling:
+   - Should refund amount be validated ≤ original payment amount?
+   - Or should refunds be allowed equal or greater?
+
+5. Duplicate Handling:
+   - Should we require exact timestamp match or allow tolerance?
+   - Current: Exact match (transaction_id, amount, timestamp)
+
+6. Rounding:
+   - Is 0.01 INR threshold appropriate?
+   - Should this be configurable per reconciliation?
+
+7. Settlement Window:
+   - Is 1-2 days (default) appropriate?
+   - Should extended threshold be 5 days or different?
+
+8. Currency:
+   - INR only in this version, or support multi-currency now?
+
+================================================================================
+END OF SUMMARY
+================================================================================
+
+For detailed explanations, see:
+  - ASSUMPTIONS.md (11 sections, design decisions)
+  - DATA_SCHEMA.md (detailed specifications with examples)
+  - ARCHITECTURE_REVIEW.md (approval request, mapping to requirements)
+
+Status: Awaiting Your Review & Approval
