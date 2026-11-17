@@ -1,0 +1,505 @@
+================================================================================
+DISTILLED PROMPT - PAYMENT RECONCILIATION SYSTEM
+================================================================================
+
+PROJECT OVERVIEW
+================================================================================
+
+Project Name: Payment Reconciliation System
+Context: OneLab AI-Native Engineer Internship Assessment
+Duration: 2 hours
+Objective: Build a system that compares payment platform transactions with 
+bank settlement records, identifies matches, detects discrepancies, and 
+provides clear explanations for all differences.
+
+
+TECHNOLOGY STACK
+================================================================================
+
+Primary Languages: Python
+Data Processing: Pandas
+Financial Calculations: Decimal (ROUND_HALF_UP)
+Frontend Framework: Streamlit
+Visualization: Plotly
+Testing: Pytest
+
+Initial Currency: Indian Rupees (INR)
+No external APIs or banking integrations required for MVP.
+
+
+INPUT DATASETS
+================================================================================
+
+Dataset 1: Payment Platform CSV
+- transaction_id (unique identifier)
+- transaction_date (when payment was initiated)
+- amount (decimal, ≥ 0.00)
+- transaction_type (enum: "payment" or "refund")
+- status (enum: "pending", "settled", or "failed")
+- currency (default: "INR")
+- original_transaction_id (references original payment for refunds)
+
+Dataset 2: Bank Settlement CSV
+- settlement_id (bank-assigned unique identifier)
+- transaction_id (links to platform transaction)
+- settlement_date (when funds settled)
+- amount (decimal, ≥ 0.00)
+- transaction_type (enum: "payment" or "refund")
+- status (enum: "settled", "failed", or "reversed")
+- currency (default: "INR")
+- original_transaction_id (references original payment for refunds)
+
+
+CORE MATCHING & VALIDATION LOGIC
+================================================================================
+
+1. PRIMARY MATCHING
+   - Match transactions by transaction_id (primary key)
+   - Amount is NOT part of the matching key
+   - Allows detection of amount mismatches after matching
+
+2. SECONDARY VALIDATION (After Matching)
+   - Compare monetary amounts using Decimal arithmetic
+   - Validate transaction_type (must match)
+   - Compare status values (may differ; note discrepancy if present)
+   - Analyze settlement timing (dates and day gaps)
+   - Validate currency codes (must match expected currency)
+
+3. DUPLICATE HANDLING
+   - Detect duplicate transaction_ids independently in each dataset
+   - PRESERVE all duplicate records (do not silently delete)
+   - Flag duplicates with type DUPLICATE_PLATFORM or DUPLICATE_BANK
+   - Prevent duplicate records from inflating clean reconciliation totals
+   - Count each transaction ID only once in aggregate totals
+
+4. TIMING ANALYSIS
+   - Normal settlement window: 1–2 calendar days (configurable)
+   - Flag transactions settling beyond configured window
+   - Detect and classify cross-month settlements separately
+   - Cross-month settlements within 1–2 day window: informational (low severity)
+
+5. REFUND VALIDATION
+   - Refund amounts: always positive values (never negative)
+   - Direction indicator: transaction_type="refund" indicates money flowing out
+   - Original transaction linkage: original_transaction_id is MANDATORY for refunds
+   - Orphaned refund definition: refund with non-empty original_transaction_id 
+     that does NOT exist in platform records
+   - Flag orphaned refunds as HIGH severity discrepancies
+
+6. ROUNDING ANALYSIS
+   - Policy 1 (Platform): Sum precise amounts FIRST, then round final total
+   - Policy 2 (Bank): Round each amount FIRST, then sum rounded amounts
+   - Acceptable variance: ≤ ₹0.01 per transaction group
+   - Flag aggregate rounding variance as LOW severity
+   - Individual and aggregate rounding differences are detected separately
+
+
+MANDATORY ASSESSMENT SCENARIOS
+================================================================================
+
+Scenario 1: CROSS-MONTH SETTLEMENT
+- Payment Date: November 30
+- Settlement Date: December 1 or December 2 (1–2 days later)
+- Classification: CROSS_MONTH_SETTLEMENT
+- Severity: LOW (informational, not a failure)
+- Validation: Must fall within configured settlement window
+- Output: Include original and settlement dates in explanation
+
+Scenario 2: AGGREGATE ROUNDING DIFFERENCE
+- Input: Three synthetic transaction amounts of ₹0.005 each
+- Platform Calculation: 0.005 + 0.005 + 0.005 = 0.015 → rounds to ₹0.02
+- Bank Calculation: (0.005→0.01) + (0.005→0.01) + (0.005→0.01) = ₹0.03
+- Detected Variance: ₹0.03 - ₹0.02 = ₹0.01
+- Classification: AMOUNT_MISMATCH or ROUNDING_VARIANCE
+- Note: Sub-paise precision (₹0.005) is SYNTHETIC and internal only; 
+  real transactions use 2 decimal places
+- Individual raw values match exactly; difference arises from aggregation policy
+
+Scenario 3: DUPLICATE ENTRIES
+- Duplicate Transaction ID: Same transaction_id in one dataset (platform or bank)
+- Duplicate Amount: Amounts and timestamps identical
+- Action: PRESERVE both records (do not remove)
+- Classification: DUPLICATE_PLATFORM or DUPLICATE_BANK
+- Severity: MEDIUM
+- Counting: Both records flagged separately; counted once in clean total
+- Output: Clearly identify which records are duplicates
+
+Scenario 4: ORPHANED REFUND
+- Refund Transaction: transaction_type = "refund"
+- Amount: ₹500.00 (positive value)
+- Original Transaction ID: Non-empty value that does NOT exist in platform
+- Classification: ORPHANED_REFUND
+- Severity: HIGH
+- Output: Clearly show original_transaction_id and explain why original not found
+
+
+DISCREPANCY TYPES & CLASSIFICATION
+================================================================================
+
+MATCHED
+- Definition: Both datasets have same transaction_id with matching amount, 
+  type, status, and timing within settlement window
+- Severity: None (success case)
+- Action: No action required
+
+CROSS_MONTH_SETTLEMENT
+- Definition: Payment in one month, settlement in another (within window)
+- Severity: LOW (informational)
+- Action: Flag explicitly; preserve both dates for audit trail
+
+AMOUNT_MISMATCH
+- Definition: Same transaction_id but different amounts in platform vs bank
+- Severity: HIGH
+- Action: Flag for investigation; record both amounts
+
+TYPE_MISMATCH
+- Definition: Same transaction_id but different transaction_type
+- Severity: HIGH
+- Action: Flag for investigation
+
+TIMING_MISMATCH
+- Definition: Settlement date outside configured window from transaction date
+- Severity: MEDIUM
+- Action: Flag as delayed settlement; record date difference
+
+MISSING_IN_BANK
+- Definition: Exists in platform but not in bank settlement records
+- Severity: MEDIUM
+- Action: Flag as pending settlement or lost transaction
+
+EXTRA_IN_BANK
+- Definition: Exists in bank but not in platform records
+- Severity: HIGH
+- Action: Flag for investigation; may indicate refund or reversal
+
+DUPLICATE_PLATFORM
+- Definition: Same transaction_id appears multiple times in platform
+- Severity: MEDIUM
+- Action: Preserve all records; flag duplicate; count once in total
+
+DUPLICATE_BANK
+- Definition: Same transaction_id appears multiple times in bank
+- Severity: MEDIUM
+- Action: Preserve all records; flag duplicate; count once in total
+
+ORPHANED_REFUND
+- Definition: Refund with missing or non-existent original_transaction_id
+- Severity: HIGH
+- Action: Flag for manual investigation; require refund linkage resolution
+
+STATUS_MISMATCH
+- Definition: Same transaction_id but different status values
+- Severity: MEDIUM
+- Action: Flag for investigation; note both statuses
+
+
+BACKEND IMPLEMENTATION REQUIREMENTS
+================================================================================
+
+1. DATA GENERATOR (data_generator.py)
+   - Generate deterministic sample data (fixed random seed)
+   - Create 100–200 realistic transaction records
+   - Embed all 4 mandatory scenarios in generated data
+   - Export to CSV files in data/ folder
+   - Include mix of normal transactions, discrepancies, and test scenarios
+   - Use Pandas for data creation
+
+2. RECONCILIATION ENGINE (reconciliation.py)
+   - Class: ReconciliationEngine with configurable parameters:
+     * settlement_window_days (default: 2)
+     * rounding_threshold (default: Decimal("0.01"))
+   
+   - Methods:
+     * load_platform_data(df): Load and validate platform CSV
+     * load_bank_data(df): Load and validate bank settlement CSV
+     * reconcile() → (results_df, discrepancies_list)
+   
+   - Features:
+     * Use Decimal for all monetary calculations (no floats)
+     * Implement ROUND_HALF_UP rounding policy
+     * Validate required columns and data types
+     * Handle missing or malformed data gracefully
+     * Detect duplicates without removing records
+     * Identify all discrepancy types
+     * Return Pandas DataFrame with matched records
+     * Return list of Discrepancy objects with explanations & severity
+   
+   - Data Classes:
+     * Transaction (transaction_id, amount, timestamp, type, status, source)
+     * Discrepancy (type, transaction_ids, amounts, explanation, severity, 
+       affected_datasets)
+
+3. DATA VALIDATION
+   - Validate all required columns present
+   - Validate data types (dates, decimals, enums)
+   - Handle missing values gracefully
+   - Do NOT reject orphaned refunds before reconciliation
+   - Do NOT reject duplicate IDs before reconciliation
+   - Load and flag issues during reconciliation, not during parsing
+
+
+FRONTEND IMPLEMENTATION REQUIREMENTS
+================================================================================
+
+Framework: Streamlit (run via: streamlit run app.py)
+
+Page 1: DASHBOARD
+- KPI Cards: 
+  * Total Platform Transactions
+  * Total Bank Records
+  * Matched Transactions
+  * Unmatched Transactions
+  * Total Discrepancies
+  * Total Variance Amount
+- Charts:
+  * Pie chart: Match Status (Matched vs Unmatched)
+  * Bar chart: Discrepancies by Type
+- Test Cases Status:
+  * Scenario 1: Cross-Month Settlement (pass/fail)
+  * Scenario 2: Rounding Variance (pass/fail)
+  * Scenario 3: Duplicate Detection (pass/fail)
+  * Scenario 4: Orphaned Refund (pass/fail)
+- Design: Professional fintech dashboard, white/light theme, navy/blue accents
+
+Page 2: UPLOAD DATA
+- Section 1: Payment Platform CSV
+  * File upload control
+  * Column validation display
+  * Data preview (first 10 rows)
+  * Record count
+  * Error messages if validation fails
+- Section 2: Bank Settlement CSV
+  * File upload control
+  * Column validation display
+  * Data preview (first 10 rows)
+  * Record count
+  * Error messages if validation fails
+- Button: "Load Sample Data"
+  * Generates sample data from data_generator.py
+  * Automatically populates both datasets
+  * Shows success message
+
+Page 3: RECONCILIATION
+- Display: Current data status (records loaded, file names)
+- Button: "Run Reconciliation"
+  * Connects to ReconciliationEngine
+  * Processes both datasets
+  * Displays progress/spinner
+  * Shows results after completion
+- Results Section (after execution):
+  * Summary metrics (matched, discrepancies, success rate)
+  * Matched records table
+  * Total counts display
+
+Page 4: DISCREPANCIES
+- Filters:
+  * Multi-select: Discrepancy Type
+  * Multi-select: Severity Level
+  * Apply filters to displayed results
+- Discrepancy Display:
+  * Expandable detail view for each issue
+  * Transaction ID(s)
+  * Discrepancy Type
+  * Severity (High/Medium/Low)
+  * Amount(s) involved
+  * Full Explanation
+  * Indicator for mandatory scenarios (📌 markers)
+- Results: Count of filtered discrepancies
+
+Page 5: REPORTS
+- CSV Download Buttons:
+  * Matched Records (reconciliation_matched.csv)
+  * Discrepancies Report (reconciliation_discrepancies.csv)
+  * Platform Data (payment_platform.csv)
+- Summary Report Display:
+  * Total platform transactions
+  * Total bank records
+  * Matched count
+  * Discrepancy count
+  * Success percentage
+  * Breakdown by discrepancy type
+
+Design Principles:
+- Sidebar navigation (5 pages)
+- Responsive layout (columns, tables)
+- Clear success/warning/error messages
+- No hardcoded metrics (all from actual reconciliation)
+- Handle missing files gracefully
+- No placeholder pages or disabled buttons
+
+
+TESTING REQUIREMENTS
+================================================================================
+
+Test Framework: Pytest
+
+Test Coverage:
+
+1. Engine Initialization
+   - Verify default parameters
+   - Verify initial state
+
+2. Data Loading
+   - Load platform data successfully
+   - Load bank data successfully
+   - Validate column requirements
+   - Handle missing columns
+   - Handle malformed data
+
+3. Mandatory Scenarios
+   - Test 1: Cross-month settlement detected & classified correctly
+   - Test 2: Rounding variance detected (₹0.02 vs ₹0.03)
+   - Test 3: Duplicates detected & preserved (not removed)
+   - Test 4: Orphaned refund detected (non-existent original_transaction_id)
+
+4. Discrepancy Detection
+   - Missing transactions in bank
+   - Extra transactions in bank
+   - Amount mismatches
+   - Type mismatches
+   - Timing mismatches
+   - Status mismatches
+
+5. Duplicate Handling
+   - Duplicates detected in platform
+   - Duplicates detected in bank
+   - Both records preserved
+   - Duplicates not counted twice in totals
+
+6. Orphaned Refund
+   - Empty original_transaction_id flagged
+   - Non-existent original_transaction_id flagged
+   - Severity: HIGH
+
+7. Decimal Arithmetic
+   - Decimal precision maintained
+   - No floating-point errors
+   - ROUND_HALF_UP applied correctly
+   - Rounding threshold applied
+
+8. Integration Tests
+   - Full reconciliation workflow
+   - All 4 scenarios in single run
+   - Results correct
+   - Discrepancies accurate
+
+All tests must:
+- Use real pytest assertions (not pass statements)
+- Use generated sample data or test fixtures
+- Verify actual functionality (not mocked)
+- Report clear failure reasons if they fail
+
+
+ENGINEERING CONSTRAINTS & ASSUMPTIONS
+================================================================================
+
+1. FINANCIAL CALCULATIONS
+   - Use Decimal type exclusively (never float)
+   - Apply ROUND_HALF_UP rounding policy
+   - Precision: 2 decimal places (standard for INR)
+   - No external financial libraries required
+
+2. CURRENCY
+   - Initial support: INR only
+   - Future enhancement: multi-currency support with exchange rates
+
+3. SETTLEMENT MAPPING
+   - MVP assumption: 1 transaction = 1 settlement (1:1 cardinality)
+   - Future enhancement: partial settlements, multi-settlement support
+
+4. DATA PRESERVATION
+   - Never silently delete records (duplicates, invalid refunds)
+   - Load all records; flag issues during reconciliation
+   - Preserve original data for audit trail
+   - Discrepancies reference original records
+
+5. ERROR HANDLING
+   - Handle missing CSV files gracefully
+   - Handle missing columns gracefully
+   - Handle malformed data (invalid dates, invalid decimals)
+   - Display clear error messages to user
+   - Do not crash application on invalid input
+   - Log errors appropriately
+
+6. DETERMINISM
+   - Sample data generation: use fixed random seed
+   - Results reproducible across runs
+   - No time-dependent behavior
+
+
+FUTURE ENHANCEMENTS (OUT OF SCOPE)
+================================================================================
+
+1. Partial Settlements
+   - Support transactions split across multiple settlement records
+   - Many-to-many transaction-to-settlement mapping
+
+2. Multi-Currency Support
+   - Support transactions in multiple currencies
+   - Exchange rate handling
+   - Currency conversion logic
+
+3. Streaming & Large Datasets
+   - Support for millions of transactions
+   - Memory-efficient processing
+   - Batch processing
+
+4. Banking Integrations
+   - Direct API connections to payment processors
+   - Real-time settlement feeds
+   - Automated daily reconciliation
+
+5. Advanced Reporting
+   - Trend analysis
+   - Variance forecasting
+   - Anomaly detection
+   - Root cause analysis
+
+6. User Management
+   - Multi-user support
+   - Role-based access control
+   - Audit logs
+
+
+DELIVERABLES
+================================================================================
+
+1. Source Code
+   - data_generator.py (working, tested)
+   - reconciliation.py (working, tested)
+   - app.py (functional Streamlit dashboard)
+   - tests/test_reconciliation.py (18+ tests, all passing)
+   - requirements.txt (all dependencies listed)
+
+2. Data Files
+   - data/payment_platform_202411.csv (sample data)
+   - data/bank_settlement_202411.csv (sample data)
+
+3. Documentation
+   - ASSUMPTIONS.md (design decisions)
+   - DATA_SCHEMA.md (CSV specifications)
+   - README.md (setup instructions)
+
+4. Quality Assurance
+   - 18 pytest tests: all passing
+   - All 4 mandatory scenarios: detected
+   - Application: deployed and running
+   - No placeholder pages or disabled features
+
+
+ASSESSMENT CRITERIA
+================================================================================
+
+✓ Correctness: All 4 mandatory scenarios detected accurately
+✓ Code Quality: Clean, documented, follows Python conventions
+✓ Testing: Comprehensive test suite, all tests passing
+✓ Frontend: Professional, functional, all buttons working
+✓ Architecture: Modular, maintainable, extensible
+✓ Financial Accuracy: Decimal arithmetic, no floating-point errors
+✓ Data Handling: Graceful error handling, no data loss
+✓ Documentation: Clear assumptions, design decisions documented
+✓ Functionality: System works as specified, ready for use
+
+================================================================================
+END OF DISTILLED PROMPT
+================================================================================
